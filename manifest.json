@@ -1,0 +1,21 @@
+{
+  "name": "精準百家樂預測 - 兩桌模式",
+  "short_name": "百家樂兩桌",
+  "description": "最準確的百家樂 AI 預測工具 - 支援兩桌",
+  "start_url": "index.html",
+  "display": "standalone",
+  "background_color": "#111827",
+  "theme_color": "#eab308",
+  "icons": [
+    {
+      "src": "https://via.placeholder.com/192x192/111827/ffffff?text=🎰",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "https://via.placeholder.com/512x512/111827/ffffff?text=🎰",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ]
+}
