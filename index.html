@@ -1,0 +1,299 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>精準百家樂預測 - 超複雜版 v2 (兩桌模式)</title>
+    <style>
+        body { font-family: system-ui, -apple-system, sans-serif; background: #111827; color: white; margin: 0; padding: 0; }
+        .container { max-width: 1100px; margin: 0 auto; padding: 20px; }
+        h1 { text-align: center; font-size: 2.5rem; color: #facc15; margin-bottom: 20px; }
+        .card { background: #1f2937; border-radius: 16px; padding: 20px; margin-bottom: 20px; }
+        button { 
+            width: 100%; padding: 18px; font-size: 1.5rem; font-weight: bold; 
+            border: none; border-radius: 12px; margin-bottom: 10px; 
+            transition: all 0.2s;
+        }
+        button:active { transform: scale(0.95); }
+        .btn-b { background: #ef4444; }
+        .btn-p { background: #3b82f6; }
+        .btn-t { background: #22c55e; }
+        .debug { font-size: 0.9rem; color: #9ca3af; margin-top: 15px; }
+        canvas { background: #27272a; border-radius: 12px; }
+        .table-switch { background: #374151; }
+        .table-switch.active { background: #6366f1; color: white; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>精準百家樂預測 - 超複雜版 v2 (兩桌模式)</h1>
+        
+        <div style="display: grid; grid-template-columns: 1fr 2fr; gap: 20px;">
+            <!-- 輸入區 -->
+            <div class="card">
+                <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-bottom:20px;">
+                    <button id="btnTableA" class="table-switch active">桌A</button>
+                    <button id="btnTableB" class="table-switch">桌B</button>
+                </div>
+                <h2 style="margin-bottom:15px;">點擊直接新增開牌</h2>
+                <button id="btnB" class="btn-b">莊</button>
+                <button id="btnP" class="btn-p">閒</button>
+                <button id="btnT" class="btn-t">和</button>
+
+                <div style="margin-top:25px; display:grid; grid-template-columns:1fr 1fr; gap:10px;">
+                    <button id="btnUndo" style="background:#4b5563;">↩ 刪除上一筆</button>
+                    <button id="btnClear" style="background:#f59e0b;">🗑 清空當前桌</button>
+                </div>
+            </div>
+
+            <!-- 歷史與大路 -->
+            <div class="card">
+                <h2>開牌歷史</h2>
+                <div id="historyList" style="background:#111827; padding:15px; height:220px; overflow-y:auto; border-radius:12px; margin-bottom:20px; font-family:monospace;"></div>
+                
+                <h2>大路路單</h2>
+                <canvas id="bigRoad" width="720" height="300"></canvas>
+            </div>
+        </div>
+
+        <!-- 預測區 -->
+        <div class="card">
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:15px;">
+                <h2>🔮 超複雜 AI 預測（20筆以上）</h2>
+                <button id="btnRecalc" style="background:#6366f1; padding:10px 20px; font-size:1rem; border-radius:9999px;">🔄 重新計算</button>
+            </div>
+            <div id="prediction" style="text-align:center; min-height:180px; font-size:1.4rem;"></div>
+            <div id="debug" class="debug"></div>
+        </div>
+    </div>
+
+    <script>
+        let historyA = [];
+        let historyB = [];
+        let pastPredsA = [];
+        let pastPredsB = [];
+        let currentTable = 'A';  // 預設桌A
+        const STORAGE_KEY_A = 'baccaratHistoryA';
+        const STORAGE_KEY_B = 'baccaratHistoryB';
+
+        function getCurrentHistory() {
+            return currentTable === 'A' ? historyA : historyB;
+        }
+        function setCurrentHistory(newHistory) {
+            if (currentTable === 'A') historyA = newHistory;
+            else historyB = newHistory;
+        }
+        function getCurrentPastPreds() {
+            return currentTable === 'A' ? pastPredsA : pastPredsB;
+        }
+        function setCurrentPastPreds(newPreds) {
+            if (currentTable === 'A') pastPredsA = newPreds;
+            else pastPredsB = newPreds;
+        }
+
+        function loadData() { 
+            const savedA = localStorage.getItem(STORAGE_KEY_A);
+            if (savedA) historyA = JSON.parse(savedA);
+            const savedB = localStorage.getItem(STORAGE_KEY_B);
+            if (savedB) historyB = JSON.parse(savedB);
+        }
+        function saveData() { 
+            localStorage.setItem(STORAGE_KEY_A, JSON.stringify(historyA));
+            localStorage.setItem(STORAGE_KEY_B, JSON.stringify(historyB));
+        }
+
+        function switchTable(table) {
+            currentTable = table;
+            document.getElementById('btnTableA').classList.toggle('active', table === 'A');
+            document.getElementById('btnTableB').classList.toggle('active', table === 'B');
+            updateAll();
+        }
+
+        function updateHistoryList() {
+            const list = document.getElementById('historyList');
+            list.innerHTML = '';
+            getCurrentHistory().forEach((h, i) => {
+                const div = document.createElement('div');
+                let str = `${i+1}. ${h.winner === 'B' ? '🟥莊' : h.winner === 'P' ? '🟦閒' : '🟩和'}`;
+                div.textContent = str;
+                list.appendChild(div);
+            });
+        }
+
+        function drawBigRoad() {
+            const canvas = document.getElementById('bigRoad');
+            const ctx = canvas.getContext('2d');
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            const cell = 48;
+            const maxCols = Math.floor(canvas.width / cell);
+            let col = -1, row = 0, lastWinner = null;
+            
+            getCurrentHistory().forEach(h => {
+                if (h.winner === 'T') {
+                    if (col >= 0) {
+                        ctx.fillStyle = '#22c55e';
+                        ctx.font = 'bold 16px Arial';
+                        ctx.textAlign = 'center';
+                        ctx.fillText('和', col*cell + 24, row*cell + 55);
+                    }
+                    return;
+                }
+                if (lastWinner === null || h.winner !== lastWinner || row >= 6) {
+                    col++;
+                    row = 0;
+                }
+                if (col >= maxCols) return;
+                const x = col * cell + 6;
+                const y = row * cell + 6;
+                ctx.fillStyle = h.winner === 'B' ? '#ef4444' : '#3b82f6';
+                ctx.beginPath(); ctx.arc(x + 18, y + 18, 18, 0, Math.PI * 2); ctx.fill();
+                ctx.fillStyle = 'white';
+                ctx.font = 'bold 22px Arial';
+                ctx.textAlign = 'center';
+                ctx.fillText(h.winner === 'B' ? '莊' : '閒', x + 18, y + 27);
+                lastWinner = h.winner;
+                row++;
+            });
+        }
+
+        function showPrediction() {
+            const predDiv = document.getElementById('prediction');
+            const debugDiv = document.getElementById('debug');
+            const currentHistory = getCurrentHistory();
+            debugDiv.textContent = `計算開始... 資料筆數: ${currentHistory.length}`;
+            
+            if (currentHistory.length < 20) {
+                predDiv.innerHTML = `<span style="color:#fcd34d;">需要20筆以上資料<br>目前 ${currentHistory.length} 筆</span>`;
+                debugDiv.textContent += ` (樣本不足)`;
+                return;
+            }
+            
+            // 超複雜算法 (平衡權重, 準率接近50%)
+            // 馬可夫鏈
+            const states = ['B', 'P', 'T'];
+            const transMatrix = states.map(() => states.map(() => 0));
+            for (let i = 1; i < currentHistory.length; i++) {
+                const prev = states.indexOf(currentHistory[i-1].winner);
+                const curr = states.indexOf(currentHistory[i].winner);
+                transMatrix[prev][curr] += 1;
+            }
+            const lastIdx = states.indexOf(currentHistory[currentHistory.length-1].winner);
+            const totalTrans = transMatrix[lastIdx].reduce((a, b) => a + b, 0) || 1;
+            const markovProb = transMatrix[lastIdx].map(count => (count / totalTrans * 100));
+            
+            // 多階序列匹配
+            let multiPred = {B:0, P:0, T:0};
+            for (let len = 3; len <= 20; len++) {
+                if (currentHistory.length < len + 1) continue;
+                const lastSeq = currentHistory.slice(-len).map(h => h.winner);
+                let candidates = [];
+                for (let i = 0; i < currentHistory.length - len; i++) {
+                    if (JSON.stringify(currentHistory.slice(i, i+len).map(h => h.winner)) === JSON.stringify(lastSeq)) {
+                        candidates.push(currentHistory[i + len].winner);
+                    }
+                }
+                if (candidates.length > 0) {
+                    candidates.forEach(c => multiPred[c] += (1 / len) * candidates.length);
+                }
+            }
+            const multiTotal = Object.values(multiPred).reduce((a, b) => a + b, 0) || 1;
+            const multiProb = Object.keys(multiPred).reduce((obj, key) => { obj[key] = multiPred[key] / multiTotal * 100; return obj; }, {});
+            
+            // 長龍偵測
+            let streak = 1;
+            let streakDir = currentHistory[currentHistory.length-1].winner;
+            for (let i = currentHistory.length - 2; i >= 0; i--) {
+                if (currentHistory[i].winner === streakDir) streak++;
+                else break;
+            }
+            const streakWeight = (streak > 3) ? (streak / 10 * 10) : 0;  // 降低權重
+            
+            // 綜合分數 (平衡到50%)
+            let scoreB = markovProb[0] * 0.3 + multiProb.B * 0.3 + (streakDir === 'B' ? streakWeight : 0) + 20;  // 加基礎分平衡
+            let scoreP = markovProb[1] * 0.3 + multiProb.P * 0.3 + (streakDir === 'P' ? streakWeight : 0) + 20;
+            let scoreT = markovProb[2] * 0.2 + multiProb.T * 0.2 + 10;
+            
+            const maxScore = Math.max(scoreB, scoreP, scoreT);
+            const finalPred = (scoreB === maxScore) ? 'B' : (scoreP === maxScore) ? 'P' : 'T';
+            const finalName = finalPred === 'B' ? '🟥 莊勝' : finalPred === 'P' ? '🟦 閒勝' : '🟩 和局';
+            const estAcc = 50 + ((maxScore - 50) / 2);  // 強制接近50%
+            const risk = maxScore < 60 ? '高風險 - 建議停手' : '中風險 - 小額試試';
+            
+            // 歷史準率追蹤
+            const currentPastPreds = getCurrentPastPreds();
+            if (currentPastPreds.length > 0) {
+                const lastPred = currentPastPreds[currentPastPreds.length-1];
+                const actual = currentHistory[currentHistory.length-1].winner;
+                if (lastPred === actual) {
+                    // 記錄準
+                }
+            }
+            currentPastPreds.push(finalPred);
+            setCurrentPastPreds(currentPastPreds);
+            const histAcc = currentPastPreds.length > 1 ? (currentPastPreds.slice(0,-1).filter((p, i) => p === currentHistory[i+1].winner).length / (currentPastPreds.length-1) * 100) : 50;
+            
+            predDiv.innerHTML = `
+                <div style="font-size:2.8rem; margin-bottom:10px;">${finalName}</div>
+                <div style="font-size:1.8rem; color:#facc15;">估計準率 ~${estAcc.toFixed(1)}%</div>
+                <div style="margin-top:20px; font-size:1rem; line-height:1.6;">
+                    馬可夫概率：莊 ${markovProb[0].toFixed(1)}% | 閒 ${markovProb[1].toFixed(1)}% | 和 ${markovProb[2].toFixed(1)}%<br>
+                    多階序列：莊 ${multiProb.B.toFixed(1)}% | 閒 ${multiProb.P.toFixed(1)}% | 和 ${multiProb.T.toFixed(1)}%<br>
+                    長龍偵測：目前連勝 ${streak} 局 (${streak > 4 ? '建議反向' : '可跟' })<br>
+                    風險評級：${risk}
+                </div>
+                <div style="margin-top:10px; font-size:0.9rem; color:#9ca3af;">歷史預測準率 ${histAcc.toFixed(1)}% • 長期~50% • 已學習 ${currentHistory.length} 筆</div>
+            `;
+            debugDiv.textContent = `計算完成 ✅ 時間: ${new Date().toLocaleTimeString('zh-TW')}`;
+        }
+
+        function updateAll() {
+            updateHistoryList();
+            drawBigRoad();
+            showPrediction();
+        }
+
+        // 綁定按鈕
+        function initButtons() {
+            document.getElementById('btnTableA').addEventListener('click', () => switchTable('A'));
+            document.getElementById('btnTableB').addEventListener('click', () => switchTable('B'));
+            document.getElementById('btnB').addEventListener('click', () => addHand('B'));
+            document.getElementById('btnP').addEventListener('click', () => addHand('P'));
+            document.getElementById('btnT').addEventListener('click', () => addHand('T'));
+            document.getElementById('btnUndo').addEventListener('click', undoLast);
+            document.getElementById('btnClear').addEventListener('click', clearAll);
+            document.getElementById('btnRecalc').addEventListener('click', showPrediction);
+        }
+
+        function addHand(winner) {
+            const currentHistory = getCurrentHistory();
+            currentHistory.push({winner});
+            saveData();
+            updateAll();
+        }
+
+        function undoLast() {
+            const currentHistory = getCurrentHistory();
+            if (currentHistory.length === 0) return;
+            currentHistory.pop();
+            saveData();
+            updateAll();
+        }
+
+        function clearAll() {
+            if (!confirm('確定清空當前桌歷史？')) return;
+            setCurrentHistory([]);
+            setCurrentPastPreds([]);
+            saveData();
+            updateAll();
+        }
+
+        // 啟動
+        loadData();
+        initButtons();
+        updateAll();
+        
+        // 顯示啟動成功
+        document.getElementById('debug').textContent = `程式已成功載入 ✅ 請測試按鈕`;
+    </script>
+</body>
+</html>
